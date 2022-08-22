@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(quanteda)
+library(readtext)
+library(readr)
+library(tidyverse)
+library(readxl)
+library(wordcloud2)
+library(quanteda.textplots)
+library(quanteda.textstats)
+library(ggplot2)
+library(tufte)
+library(kableExtra)
+library(topicmodels)
+library(LDAvis)
+library(servr)
+```
+
+```{r}
+text <- read_excel("C:/Users/Airton/OneDrive/Documentos/lens-export.xlsx")
+
+```
+
+```{r}
+text_corpus <- corpus(text, text_field = "Abstract")
+text_dfm <- dfm(text_corpus, stem = TRUE, remove = stopwords("en"), remove_punct = TRUE)
+
+text_corpus
+```
+
+```{r}
+text_dfm
+
+```
+
+
+```{r}
+text_dfm_trim <- dfm_trim(text_dfm, min_termfreq = 10)
+
+text_dfm_trim
+```
+```{r}
+wordcloud1 <- textplot_wordcloud(text_dfm_trim, max_words = 50)
+
+```
+```{r}
+wordcloud2 <- textplot_wordcloud(text_dfm, max_words = 50)
+
+```
+```{r}
+textstat_frequency(text_dfm_trim, n = 50)
+
+```
+
+```{r}
+freq_plot <- text_dfm %>%
+  textstat_frequency(n = 15) %>%
+  ggplot(aes(x = reorder(feature, frequency),
+             y = frequency)) +
+  geom_point() +
+  coord_flip() +
+  labs(x = NULL, y = "Frequency")
+
+freq_plot
+```
+
+```{r}
+toks_adjusted <- text_corpus %>%
+  tokens() %>%
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_wordstem()
+tstat_col_adjusted <- toks_adjusted %>%
+  textstat_collocations(min_count = 5, tolower = FALSE)
+  
+
+head(tstat_col_adjusted, 30)
+```
+
+```{r}
+toks_comp <- toks_adjusted %>%
+  tokens_compound(tstat_col_adjusted[tstat_col_adjusted$z > 3])
+
+compound_tok <- toks_comp %>%
+  tokens_keep(pattern = "*_*") %>%
+  dfm() %>%
+  topfeatures()
+
+compound_tok
+```
+
+```{r}
+innovation_kwic <- kwic(tokens(text_corpus), 'innovation', window = 10)
+head(innovation_kwic, 10)
+```
+
+```{r}
+innovation <- kwic(tokens(text_corpus), 'innovati*')
+innovation_corp <- corpus(innovation)
+innovation_dfm <- innovation_corp |>
+  tokens(remove_punct = T, remove_numbers = T, remove_symbols = T) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords('en')) |>
+  tokens_wordstem() |>
+  dfm()
+
+innovation
+```
+```{r}
+dict <- dictionary(list(environmental = c('environment*','GHG','emission*','florest','burning'),
+                        economy = c('econom*', 'tax*','profit','money', 'subsidy'),
+                        social = c('social','gender', 'wages','job*','inequality','poverty')))
+dict_dfm <- dfm_lookup(text_dfm, dict, exclusive=TRUE)
+dict_dfm 
+```
+
+```{r}
+textplot_wordcloud(dict_dfm)
+
+```
+```{r}
+dict_tech_or_gov <- dictionary(list(technology = c('living mulches', 'nutrient management', 'crop rotation', 'associated plants', 'agroforestry', 'intercropping', 'embedded natural', 'restoration', 'fodder cropping', 'rangeland improvement', 'fert*', 'sequestration','rotation', 'nutrient'),
+                             governance = c('governance', 'policy', 'public policy', 'pay not burn', 'subsidy', 'tax*','regulation', 'behavior')))
+
+
+dict_tech_or_gov_dtm <- dfm_lookup(text_dfm, dict_tech_or_gov, exclusive = TRUE)
+dict_tech_or_gov_dtm
+```
+
+```{r}
+textplot_wordcloud(dict_tech_or_gov_dtm)
+
+```
+```{r}
+env_kwic <- kwic(text_corpus, dict$environmental, window = 3)
+eco_kwic <- kwic(text_corpus, dict$economy, window = 3)
+socio_kwic<-kwic(text_corpus, dict$social, window = 3)
+
+```
+```{r}
+head(env_kwic, 20)
+```
+```{r}
+head(env_kwic, 20)
+head(eco_kwic, 20)
+head(socio_kwic, 20)
+
+
+```
+```{r}
+text_dtm_topic <- convert(text_dfm_trim, to = "topicmodels")
+
+set.seed(123)
+
+m <- LDA(text_dtm_topic, method = "Gibbs", k = 10,  control = list(alpha = 0.1))
+m
+```
+
+```{r}
+m
+```
+
+```{r}
+terms(m, 5)
+
+```
+```{r}
+topic <- 9
+words <- posterior(m)$terms[topic, ]
+topwords <- head(sort(words, decreasing = T), n=50)
+head(topwords)
+```
+
+```{r}
+topic.docs <- posterior(m)$topics[, topic] 
+topic.docs <- sort(topic.docs, decreasing=T)
+head(topic.docs)
+```
+
+```{r}
+dtm <- text_dtm_topic
+
+dtm = dtm[slam::row_sums(dtm) > 0, ]
+phi = as.matrix(posterior(m)$terms)
+theta <- as.matrix(posterior(m)$topics)
+vocab <- colnames(phi)
+doc.length = slam::row_sums(dtm)
+term.freq = slam::col_sums(dtm)[match(vocab, colnames(dtm))]
+
+json = createJSON(phi = phi, theta = theta, vocab = vocab,
+                  doc.length = doc.length, term.frequency = term.freq)
+
+```
+
+```{r}
+serVis(json, out.dir = tempfile(), open.browser = interactive(), as.gist = FALSE)
+
+```
+
