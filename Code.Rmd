@@ -1,0 +1,324 @@
+---
+title: "What we talk about when we talk about innovation in Agriculture"
+author: "Renan Magalhães"
+date: "20/01/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 1100)
+```
+
+This work intends to create the first attempt using text analysis tools while working with a database of studies related to innovation in agriculture. The objective here is to write the coding structure and apply it to a developing database, later advancing to a larger one, replicating the procedures developed here. In this way, I wrote the code so that it is possible to apply it in other databases without the necessity of significant changes.
+
+Considering the ERC proposal's intentions to understand the broad impacts of innovation in the agriculture sector, this work seeks to help in the definition of innovation within the field - what is considered innovation by different studies, its effects, applications and, mainly, what type of impact is mainly being measured. The analysis tries to give tools and assist in answering questions such as:
+
+* What types of studies are being done?
+
+* Which methodologies are being used mainly? What do they assess?
+
+* Is innovation mostly considered technological or governance processes? What are these technologies or policies?
+
+* What kind of result is expected from applying these innovations: productivity gains, the reduction of GHG emissions, or possibly an advance in the social conditions of agricultural workers?
+
+* And finally, is it possible to find a way to fully measure the impacts of innovation in agriculture, an assessment that addresses both environmental, social, and economic effects?
+
+
+## Methodology
+
+This work mainly uses the quanteda() package within the **R** program for the Text Analysis procedures. The package assists in creating tokens, matrices, and visualizations of qualitative and quantitative textual analysis processes.
+The database used in this project results from a research query extracted using the *publish or perish* program. The research query was delimited between the years 2010 and 2021, within the *crossref* database:
+
+
+
+The resulted database with more than 600 articles was reduced to 78 studies. This reduction was only for application purposes and process facilitation - to ensure that the code could be helpful when applied to a more extensive database. The specific 78 studies used were those in which the Abstracts were extracted automatically and trimmed, without using any text mining procedure. In that way, the main text analyzed for this work was the 78 Abstracts. This choice allows agility in our code and analysis writing. However, it has profound limitations. Ideally, we should consider using the entire body text of the studies - a step to be soon achieved. Specifically, regarding the investigations about the studies' methodologies, the initial result is minimal since the part of the texts describing the methods was not considered. Despite these limitations, the code we wrote presents itself as a robust mechanism for more significant analysis. Working with a more extensive database does not require fundamental code changes.
+
+
+## Text Analysis: initial overview
+
+First, we load the packages used in the data exploration.
+
+```{r}
+library(quanteda)
+library(readtext)
+library(readr)
+library(tidyverse)
+library(readxl)
+library(wordcloud2)
+library(quanteda.textplots)
+library(quanteda.textstats)
+library(ggplot2)
+library(tufte)
+library(kableExtra)
+library(topicmodels)
+library(LDAvis)
+library(servr)
+```
+
+
+We upload the data in excel format.
+
+
+```{r}
+text <- read_excel("C:/Users/Airton/OneDrive/Documentos/texto.xlsx")
+
+```
+
+To proceed with the text analysis, we must convert texts to a Corpus format (transforming the text into different tokens) and DFM (Matrixes that quantify how many times each word was used, allowing analysis with the created objects). We can also remove stopwords (is, can, it, etc.) and the punctuation for a cleaner data analysis.
+
+```{r}
+text_corpus <- corpus(text, text_field = "Abstract")
+text_dfm <- dfm(text_corpus, stem = TRUE, remove = stopwords("en"), remove_punct = TRUE)
+
+text_corpus
+text_dfm
+```
+
+Then, we trim the data, considering the terms used in the articles at least ten times.
+
+```{r}
+text_dfm_trim <- dfm_trim(text_dfm, min_termfreq = 10)
+text_dfm_trim
+
+```
+
+We can create a word cloud for an initial vision of this database's most used terms and words.
+
+```{r, echo=FALSE, out.width="300%", fig.cap="Wordcloud most frequent words in the database."}
+
+wordcloud1 <- textplot_wordcloud(text_dfm_trim, max_words = 50)
+```
+
+```{r, echo=FALSE, out.width="300%", fig.cap="Wordcloud trimmed from the most frequent words in the database."}
+
+wordcloud2 <- textplot_wordcloud(text_dfm, max_words = 50)
+```
+
+Here, we are quantifying the most frequent words.
+
+```{r}
+textstat_frequency(text_dfm_trim, n = 10)
+```
+
+```{r, echo=FALSE, out.width="300%", fig.cap="Plotting the most frequent words in the database"}
+freq_plot <- text_dfm %>%
+  textstat_frequency(n = 15) %>%
+  ggplot(aes(x = reorder(feature, frequency),
+             y = frequency)) +
+  geom_point() +
+  coord_flip() +
+  labs(x = NULL, y = "Frequency")
+
+freq_plot
+```
+
+The preliminary analysis gives us an initial view of what these studies address, which technologies are being used, and what can be considered an innovation. For example, the studies looking at crop rotation, irrigation and fertilization techniques, and water use management are the ones most frequent. Through text collocation, looking at compound words and sentences, it is possible to make this observation more accurate.
+
+
+```{r}
+toks_adjusted <- text_corpus %>%
+  tokens() %>%
+  tokens_remove(pattern = stopwords("en")) %>%
+  tokens_wordstem()
+tstat_col_adjusted <- toks_adjusted %>%
+  textstat_collocations(min_count = 5, tolower = FALSE)
+  
+
+head(tstat_col_adjusted, 15)
+
+toks_comp <- toks_adjusted %>%
+  tokens_compound(tstat_col_adjusted[tstat_col_adjusted$z > 3])
+
+compound_tok <- toks_comp %>%
+  tokens_keep(pattern = "*_*") %>%
+  dfm() %>%
+  topfeatures()
+
+compound_tok
+```
+
+## Text Analysis: associated words and terms
+
+At this stage of the work, we can look at the words that are associated with the word “innovation” and similar terms to understand what these studies talk about when they talk about innovation.
+
+```{r}
+innovation_kwic <- kwic(tokens(text_corpus), 'innovation', window = 10)
+head(innovation_kwic, 10)
+
+innovation <- kwic(tokens(text_corpus), 'innovati*')
+innovation_corp <- corpus(innovation)
+innovation_dfm <- innovation_corp |>
+  tokens(remove_punct = T, remove_numbers = T, remove_symbols = T) |>
+  tokens_tolower() |>
+  tokens_remove(stopwords('en')) |>
+  tokens_wordstem() |>
+  dfm()
+
+innovation
+
+```
+
+## Text Analysis: dictionary analysis
+
+A dictionary analysis also allows us to have a more accurate observation of the objectives and interests from the different studies. From our initial research supporting the ERC proposal, it was possible to create three types of dictionaries to help us in the investigations:
+
+* Dictionary of impact analysis associating terms for "environmental impact", "social impact", and "economic impact";
+
+* Dictionary of methodologies, associating terms to each type of industrial ecology methodology;
+
+* Dictionary of innovations, differentiating technological innovation from governance innovation.
+
+The analysis from the dictionaries allows us to make observations such as which methodologies are being most used in the studies, if the innovations fall mainly on the technical or governance innovation side, and understand the type of impact prioritized by these studies. However, the analysis here is incipient, and for better results, it is essential to apply it to full texts, not just the abstract. Also, dictionaries can be changed to add other terms and words if desired, in a process that ideally is built collectively.
+
+### Dictionary 1
+
+```{r}
+
+dict <- dictionary(list(environmental = c('environment*','GHG','emission*','florest','burning'),
+                        economy = c('econom*', 'tax*','profit','money', 'subsidy'),
+                        social = c('social','gender', 'wages','job*','inequality','poverty')))
+dict_dfm <- dfm_lookup(text_dfm, dict, exclusive=TRUE)
+dict_dfm 
+
+```
+```{r}
+textplot_wordcloud(dict_dfm)
+```
+
+### Dictionary 2
+
+```{r}
+dict_meto <- dictionary(list(LCA = c('Life Cycle Assessment', 'LCA', 'Life Cycle', 'cradle-to-grave', 'product life', 'LCI', 'inventory', 'LCIA'),
+                             SLCA = c('jobs', 'accidents', 'wages', 'gender', 'education', 'working hours'),
+                             MRIO = c('Trade network', 'trade', 'multi region', 'export', 'transaction'),
+                             IO = c('input-output ratio'),
+                             MFA = c('MFA', 'Material flow', 'waste', 'imput', 'output', 'transformation', 'flowchart'), 
+                             PLUM = c('Product land use', 'land use'),
+                             EA = c('Energy Analysis', 'EA', 'energy *', 'imput', 'fuel', 'renewable'),
+                             CBA = c('cost benefit', 'cost*', 'economic', 'cost', 'benefit', 'external cost', 'cost-benefit'),
+                             EIA = c('Environmental Impact Assessment', 'participation', 'EIA', 'local level')))
+
+dict_meto_dtm <- dfm_lookup(text_dfm, dict_meto, exclusive = TRUE)
+dict_meto_dtm
+
+textplot_wordcloud(dict_meto_dtm)
+
+```
+
+### Dictionary 3
+
+```{r}
+
+dict_tech_or_gov <- dictionary(list(technology = c('living mulches', 'nutrient management', 'crop rotation', 'associated plants', 'agroforestry', 'intercropping', 'embedded natural', 'restoration', 'fodder cropping', 'rangeland improvement', 'fert*', 'sequestration','rotation', 'nutrient'),
+                             governance = c('governance', 'policy', 'public policy', 'pay not burn', 'subsidy', 'tax*','regulation', 'behavior')))
+
+
+dict_tech_or_gov_dtm <- dfm_lookup(text_dfm, dict_tech_or_gov, exclusive = TRUE)
+dict_tech_or_gov_dtm
+
+textplot_wordcloud(dict_tech_or_gov_dtm)
+```
+
+```{r}
+env_kwic <- kwic(text_corpus, dict$environmental, window = 3)
+eco_kwic <- kwic(text_corpus, dict$economy, window = 3)
+
+head(env_kwic, 20)
+head(eco_kwic, 20)
+```
+
+This overview allows us to understand what is being addressed when dealing with innovation. The preliminary use of this database shows us that the studies mainly focus on analyzing the environmental impact, with a low incidence of innovation processes aimed at measuring the economic impact - and without any study that investigates the social impact isolated. Likewise, we see studies analyzing the impact of technologies are much more present than studies on governance impact. From this preliminary view, it is critical to replicate the data to a more extensive database and see if these considerations repeat.
+
+## Text Analysis: Topic Modeling
+
+A topic model is a textual statistical analysis used to extract "topics" within a collection of documents, creating patterns within a set of topics. With supervised human analysis, it is possible to understand the frequently associated terms with the same set. This allows us to observe, for example, the terms associated with each methodology or the terms associated with each type of innovation. Through the packages **topicmodels()**, **LDAvis()** and **servr()** we build the topics.
+
+Here we present the topics and a list of 5 words associated with them:
+
+
+```{r}
+
+text_dtm_topic <- convert(text_dfm_trim, to = "topicmodels")
+
+set.seed(123)
+m <- LDA(text_dfm_trim, method = "Gibbs", k = 10,  control = list(alpha = 0.1))
+m
+
+terms(m, 5)
+
+```
+
+We can also analyze the most frequent words of each topic individually. Here is a look at topic 9:
+
+```{r}
+
+topic <- 9
+words <- posterior(m)$terms[topic, ]
+topwords <- head(sort(words, decreasing = T), n=50)
+head(topwords)
+
+topic.docs <- posterior(m)$topics[, topic] 
+topic.docs <- sort(topic.docs, decreasing=T)
+head(topic.docs)
+
+```
+
+Finally, we can visualize the characteristics of each topic, such as the proximity between them, interactively.
+
+```{r}
+
+dtm <- text_dtm_topic
+
+dtm = dtm[slam::row_sums(dtm) > 0, ]
+phi = as.matrix(posterior(m)$terms)
+theta <- as.matrix(posterior(m)$topics)
+vocab <- colnames(phi)
+doc.length = slam::row_sums(dtm)
+term.freq = slam::col_sums(dtm)[match(vocab, colnames(dtm))]
+
+json = createJSON(phi = phi, theta = theta, vocab = vocab,
+                  doc.length = doc.length, term.frequency = term.freq)
+serVis(json, out.dir = tempfile(), open.browser = interactive(), as.gist = FALSE)
+
+```
+
+The use of topic modeling also helps us build more robust dictionaries, allowing more accurate analysis.
+
+## Next steps
+
+Through topic modeling and dictionaries, it is possible to create an application that individually defines the methodology used by each paper. From this, it is possible to associate terms for each method. Until now, the code was applied only in the article's abstract, so the following visualization has no value, being just an experiment. However, when considering the whole text body, it has the potential to connect the terms inside each topic to each methodology. Likewise, this product can be replicated to understand each type of innovation and impact analysis, understanding what processes are mostly connected to each type of impact analysis or each type of innovation process.
+
+
+```{r}
+
+experimental_database <- read_excel("C:/Users/Airton/OneDrive/Documentos/experimento.xlsx")
+
+text_corpus_exp <- corpus(experimental_database, text_field = "Abstract")
+text_dtm_exp<- dfm(text_corpus_exp, stem = TRUE, remove = stopwords("en"), remove_punct = TRUE)
+text_dtm_trim_exp <- dfm_trim(text_dtm_exp, min_termfreq = 10)
+
+text_dtm_topic_exp <- convert(text_dtm_trim_exp, to = "topicmodels")
+
+set.seed(123)
+
+e <- LDA(text_dtm_trim_exp, method = "Gibbs", k = 10,  control = list(alpha = 0.1))
+e
+
+docs <- docvars(text_dtm_trim_exp)[match(rownames(text_dtm_topic_exp), docnames(text_dtm_trim_exp)),]
+tpp <- aggregate(posterior(e)$topics, by=docs["Methodology"], mean)
+rownames(tpp) = tpp$Methodology
+heatmap(as.matrix(tpp[-1]))
+
+```
+
+
+
+
+
+
